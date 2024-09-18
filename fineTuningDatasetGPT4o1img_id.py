@@ -41,13 +41,14 @@ def extract_product_ids_from_file(file_path):
     return existing_product_ids
 
 
-# Function to get all active products with description IDs, shuffle them, and return the first 9
-def get_product_ids_and_names():
+# Function to get product information, including materials
+def get_product_info_with_materials():
     connection = mysql.connector.connect(**DB_CONFIG)
     cursor = connection.cursor()
 
+    # Query to fetch product information and materials
     query = """
-    SELECT CA_CW_ID, CA_TYTUL
+    SELECT CA_CW_ID, CA_TYTUL, ca_filters_material1, ca_filters_material2, ca_filters_material3
     FROM cms_art_produkty
     WHERE ca_is_multitext = 1 AND CA_AKTYWNY = 'T'
     """
@@ -58,12 +59,28 @@ def get_product_ids_and_names():
     cursor.close()
     connection.close()
 
+    # Shuffle the products
     random.shuffle(products)
 
+    # Extract existing product IDs from the fine-tuning file
     existing_product_ids = extract_product_ids_from_file("fine_tune_chat_dataset.jsonl")
-    new_products = [(product_id, product_name) for product_id, product_name in products if product_id not in existing_product_ids]
 
-    return new_products[:1]
+    # Filter out products that are already in the fine-tuning dataset
+    new_products = [
+        {
+            "product_id": product[0],
+            "product_name": product[1],
+            "materials": {
+                "material1": product[2] if product[2] else "brak informacji",
+                "material2": product[3] if product[3] else "brak informacji",
+                "material3": product[4] if product[4] else "brak informacji"
+            }
+        }
+        for product in products if product[0] not in existing_product_ids
+    ]
+
+    # Return only the first product
+    return new_products[:20]
 
 
 # Function to get all image URLs and generate unique img_id for each
@@ -256,12 +273,16 @@ def replace_urls_with_img_ids(descriptions, image_descriptions):
     return descriptions
 
 
-# Function to create the JSONL dataset
+# Function to create the JSONL dataset with materials information
 def create_fine_tune_dataset(output_file="fine_tune_chat_dataset.jsonl"):
-    products = get_product_ids_and_names()
+    products = get_product_info_with_materials()
 
     with open(output_file, "a", encoding="utf-8") as file:
-        for product_id, product_name in products:
+        for product in products:
+            product_id = product["product_id"]
+            product_name = product["product_name"]
+            materials = product["materials"]
+
             # Get product images (with URLs)
             images = get_product_images(product_id)
 
@@ -309,10 +330,11 @@ WAŻNE: Używaj ***tylko*** podanych identyfikatorów obrazów. ***Nie dodawaj o
 
 """
 
-            # Prepare the user message with img_id and descriptions
+            # Prepare the user message with img_id, descriptions, and materials
             user_message = {
                 "product_id": product_id,
                 "product_name": product_name,
+                "materials": materials,
                 "images": [
                     {
                         "img_id": image["img_id"],
