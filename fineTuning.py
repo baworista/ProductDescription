@@ -21,7 +21,7 @@ client = OpenAI()
 
 # # CREATE FINE-TUNING JOB
 # response = client.fine_tuning.jobs.create(
-#   training_file="file-UmT1khRFlKImqsER1GN8VMoU",
+#   training_file="file-xpwFa5rPgofDhRJjTSJGW96f",
 #   model="gpt-4o-2024-08-06",
 # )
 
@@ -29,8 +29,11 @@ client = OpenAI()
 # print(response)
 
 
-# MONITOR FINE-TUNING JOB ftjob-ghSgcVIWjAHhQjoT7X4cOwra    ftjob-k6gOW9YbNsAigLvZZAXY9bbD  ftjob-R21W8ii0zLej2vLNaBATsRkF
-response = client.fine_tuning.jobs.retrieve("ftjob-R21W8ii0zLej2vLNaBATsRkF")
+# MONITOR FINE-TUNING JOB
+# ftjob-k6gOW9YbNsAigLvZZAXY9bbD - v1.2(test fine-tuning)
+# ftjob-R21W8ii0zLej2vLNaBATsRkF - v1.3(id, name and img urls)
+# ftjob-dzMBKxXWVjcUdZSSAI6tQsdW - v1.4(id, name, materials, img ids)
+response = client.fine_tuning.jobs.retrieve("ftjob-dzMBKxXWVjcUdZSSAI6tQsdW")
 
 # Check the fine-tuned model ID
 print(response)
@@ -50,7 +53,7 @@ print(response)
 
 
 # List 10 fine-tuning jobs
-client.fine_tuning.jobs.list()
+#client.fine_tuning.jobs.list()
 
 # # Retrieve the state of a fine-tune
 # client.fine_tuning.jobs.retrieve("ftjob-abc123")

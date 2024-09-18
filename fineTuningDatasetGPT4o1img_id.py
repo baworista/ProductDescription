@@ -80,7 +80,7 @@ def get_product_info_with_materials():
     ]
 
     # Return only the first product
-    return new_products[:20]
+    return new_products[:1]
 
 
 # Function to get all image URLs and generate unique img_id for each
@@ -114,8 +114,9 @@ def get_product_images(product_id):
         WHERE CZ_CW_ID = {product_id}
     ) AS OrderedImages
     WHERE rn = 1
-    ORDER BY CZ_KOLEJNOSC ASC;
-    """
+    ORDER BY CZ_KOLEJNOSC ASC
+    LIMIT 6
+    """ 
 
     cursor.execute(query)
     images = []
@@ -129,32 +130,33 @@ def get_product_images(product_id):
 
     return images
 
+
 # Function to send an image URL to GPT-4 Vision API and get a description
 def send_image_url_to_gpt_vision(image_url):
-    return "Generated_description"
-    # headers = {
-    #     "Content-Type": "application/json",
-    #     "Authorization": f"Bearer {api_key}"
-    # }
+    # return "Generated_description"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
 
-    # payload = {
-    #     "model": "gpt-4o-2024-08-06",
-    #     "messages": [
-    #         {
-    #             "role": "user",
-    #             "content": f"To jest zdjęcie produktu z internet-sklepu. Opisz to co jest na zdjęciu. Uważaj, bo masz 150 tokenów na odpowiedź.\nZdjęcie: {image_url}"
-    #         }
-    #     ],
-    #     "max_tokens": 150
-    # }
+    payload = {
+        "model": "gpt-4o-2024-08-06",
+        "messages": [
+            {
+                "role": "user",
+                "content": f"To jest zdjęcie produktu z internet-sklepu. Opisz to co jest na zdjęciu. Uważaj, bo masz 150 tokenów na odpowiedź.\nZdjęcie: {image_url}"
+            }
+        ],
+        "max_tokens": 150
+    }
 
-    # response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
-    # response_json = response.json()
+    response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+    response_json = response.json()
 
-    # if 'choices' in response_json:
-    #     return response_json['choices'][0]['message']['content']
-    # else:
-    #     return "Description not available"
+    if 'choices' in response_json:
+        return response_json['choices'][0]['message']['content']
+    else:
+        return "Description not available"
 
 
 # Function to process images and add their descriptions to the existing images dictionary
@@ -307,7 +309,7 @@ Jesteś asystentem sklepu e-commerce. Twoim zadaniem jest wygenerowanie atrakcyj
 ***
 
 Instrukcje:
-- Masz podane id produktu, nazwę produktu, id zdjęć oraz ich opis. Na podstawie nazwy produktu oraz opisów zdjęć, wygeneruj opis produktu krok po kroku:
+- Masz podane id produktu, nazwę produktu, material(jeżeli jest informacja) oraz id zdjęć z ich opisami. Na podstawie nazwy produktu oraz opisów zdjęć, wygeneruj opis produktu krok po kroku:
   
   1. ***Najpierw*** pomyśl nad najlepszym sposobem opisania produktu. Rozważ kluczowe cechy, które mogą zainteresować klientów, np. funkcjonalność, jakość, estetyka.
   2. ***Zastanów się***, jakie zdjęcia najlepiej pasują do opisu każdego fragmentu tekstu i jak mogą wizualnie wspierać opis. Wybierz odpowiednie id zdjęć na podstawie ich opisu i funkcji.

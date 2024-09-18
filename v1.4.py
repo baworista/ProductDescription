@@ -3,6 +3,7 @@ import json
 import os
 import requests
 from dotenv import load_dotenv
+import logging
 import random
 import re
 
@@ -12,19 +13,24 @@ api_key = os.getenv("OPENAI_API_KEY")
 
 # Database connection details
 DB_CONFIG = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': 'superwnetrze',
-    'database': 'superwnetrze_db'
+    'host': os.getenv('DB_HOST'),
+    'user': os.getenv('DB_USER'),
+    'password': os.getenv('DB_PASSWORD'),
+    'database': os.getenv('DB_NAME')
 }
 
-# Function to get a single product by its EAN
-def get_product_by_ean(product_ean):
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Function to get product information, including materials
+def get_product_info_with_ean(product_ean):
     connection = mysql.connector.connect(**DB_CONFIG)
     cursor = connection.cursor()
 
+    # Query to fetch product information and materials
     query = f"""
-    SELECT CA_CW_ID, CA_TYTUL
+    SELECT CA_CW_ID, CA_TYTUL, ca_filters_material1, ca_filters_material2, ca_filters_material3
     FROM cms_art_produkty
     WHERE CA_EAN = '{product_ean}'
     """
@@ -35,7 +41,20 @@ def get_product_by_ean(product_ean):
     cursor.close()
     connection.close()
 
-    return product if product else None
+    if product:
+        product_info = {
+            "product_id": product[0],
+            "product_name": product[1],
+            "materials": {
+                "material1": product[2] if product[2] else "brak informacji",
+                "material2": product[3] if product[3] else "brak informacji",
+                "material3": product[4] if product[4] else "brak informacji"
+            }
+        }
+        return product_info
+    else:
+        return None
+
 
 # Function to get all image URLs for a product
 def get_product_images(product_id):
@@ -96,7 +115,7 @@ def send_image_url_to_gpt(image_url):
                 "content": prompt
             }
         ],
-        "max_tokens": 130  # Limit to 130 tokens for the description
+        "max_tokens": 150  # Limit to 130 tokens for the description
     }
 
     response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
@@ -108,7 +127,7 @@ def send_image_url_to_gpt(image_url):
         print(f"Error in API call: {response_json}")
         return "Description not available"
 
-# Function to process images and add their descriptions to the prompt
+# Function to process images and add their descriptions
 def process_images_with_descriptions(image_urls):
     descriptions = []
     for image in image_urls:
@@ -129,9 +148,9 @@ def send_chat_data_to_gpt(chat_data):
     }
 
     payload = {
-        "model": "ft:gpt-4o-2024-08-06:personal::A810XLWW",  # Use GPT-4 or your fine-tuned model
+        "model": "ft:gpt-4o-2024-08-06:personal::A8nS4dK3",  # Use GPT-4 or your fine-tuned model
         "messages": chat_data["messages"],
-        "max_tokens": 1500,  # Adjust as needed
+        "max_tokens": 1200,  # Adjust as needed
     }
 
     response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
@@ -230,20 +249,26 @@ def update_ca_tresc(product_id):
 
 # Function to create and send system message and user input for a specific product
 def display_fine_tune_input_for_single_product(product_ean):
-    product = get_product_by_ean(product_ean)
+    product_info = get_product_info_with_ean(product_ean)
 
-    if product:
-        product_id, product_name = product
+    if product_info:
+        product_id = product_info["product_id"]
+        product_name = product_info["product_name"]
+        materials = product_info["materials"]
 
         # Get product images
         images = get_product_images(product_id)
+
+        if not images:
+            logger.warning(f"No images found for product ID {product_id}.")
+            return
 
         # Process images and add descriptions
         images_with_descriptions = process_images_with_descriptions(images)
 
         # Create the system prompt
         system_prompt = """
-Jesteś asystentem sklepu e-commerce. Twoim zadaniem jest wygenerowanie atrakcyjnych opisów produktów, które zostaną zapisane w bazie danych w następującej strukturze:
+Jesteś asystentem sklepu e-commerce. Twoim zadaniem jest tworzenie atrakcyjnych opisów produktów, które zostaną zapisane w bazie danych w następującej strukturze:
 
 - **capd_cw_id**: ID produktu
 - **capd_desc_order**: kolejność części opisu
@@ -252,24 +277,55 @@ Jesteś asystentem sklepu e-commerce. Twoim zadaniem jest wygenerowanie atrakcyj
 
 ***
 
-Instrukcje:
-1. Najpierw pomyśl nad najlepszym sposobem opisania produktu. 
-2. Zastanów się, jakie zdjęcia najlepiej pasują do opisu każdego fragmentu tekstu i jak mogą wizualnie wspierać opis.
-3. Zaplanuj, gdzie umieścić zdjęcia, aby harmonijnie wspierały tekst i wprowadzały wizualny kontekst.
-4. Dla każdej części opisu zapisz, gdzie dane zdjęcie powinno się znaleźć i dlaczego.
-5. Przystąp do ostatecznego sformułowania treści i umiejscowienia zdjęć.
+**Instrukcje:**
+
+1. Przemyśl najlepszy sposób opisania produktu, uwzględniając kluczowe cechy interesujące klientów: funkcjonalność, jakość, estetykę. Zwróć uwagę na materiał, jeśli jest podany, i unikaj wymyślania niepewnych informacji.
+2. Zastanów się, które zdjęcia najlepiej pasują do poszczególnych fragmentów opisu i jak mogą wizualnie go wspierać.
+3. Zaplanuj rozmieszczenie zdjęć tak, aby harmonijnie współgrały z tekstem i dodawały kontekst wizualny, **pamiętając o maksymalnym rozmiarze 600x600 pikseli**.
+4. Dla każdej części opisu logicznie określ, gdzie powinno znaleźć się odpowiednie zdjęcie i dlaczego.
+5. Sformułuj ostateczny tekst opisu i umieść zdjęcia w odpowiednich miejscach.
 
 ***
 
-- Używaj **tylko** podanych identyfikatorów obrazów. **Nie dodawaj ani nie generuj nowych linków**.
+- Używaj **wyłącznie** podanych identyfikatorów obrazów. **Nie dodawaj ani nie generuj nowych linków; wstawiaj tylko id zdjęcia.**
+- Zachowaj odpowiednią strukturę HTML w polach `capd_desct_text` i `capd_desct_text2`. **Nie pozostawiaj pustych pól. Nie może być "capd_desc_text": "" lub "capd_desc_text2": ""**
+- Zadbaj o estetykę, spójność i czytelność tekstu. Upewnij się, że opis jest uporządkowany i przyjemny dla oka. Możesz używać symboli takich jak ✅ czy ⭐.
+- Staraj się nie robić za dużo tekstu ze względu na kosztowność. Pamiętaj o strukturze opisów: kolejność, lewo, prawo.
+
+***
+
+**WAŻNE:** Używaj **tylko** podanych identyfikatorów obrazów. **Nie dodawaj ani nie twórz nowych identyfikatorów. Zastępuj linki zdjęć identyfikatorem `img_id:id`, gdzie `id` to odpowiedni numer obrazu.**
+**WAŻNE:** Jak jest tylko jedno zdjęcie, nie rób więcej niż 1 część opisów. jak są kilka zdjęć nie generuj więcej niż 5 części opisu. 
+**WAŻNE:** **Nie powtarzaj tego samego zdjęcia kilka razy**
+
+***
+
+The output must be strictly:
+
+{
+  "description_parts": [
+    {
+      "capd_desc_order": 1,
+      "capd_desc_text": "Treść dla lewej strony z odpowiednimi tagami HTML",
+      "capd_desc_text2": "Treść dla prawej strony z odpowiednimi tagami HTML"
+    },
+    // Możesz dodać więcej części opisu według potrzeb
+  ]
+}
+
 """
 
-        # Create the user message in JSON format
+
+        # Prepare the user message with product information, materials, and images
         user_message = {
             "product_id": product_id,
             "product_name": product_name,
+            "materials": materials,
             "images": [
-                {"img_id": image['img_id'], "description": image['description']} for image in images_with_descriptions
+                {
+                    "img_id": image["img_id"],
+                    "description": image["description"]
+                } for image in images_with_descriptions
             ]
         }
 
@@ -278,7 +334,7 @@ Instrukcje:
             "messages": [
                 {
                     "role": "system",
-                    "content": system_prompt
+                    "content": system_prompt.strip()
                 },
                 {
                     "role": "user",
@@ -288,25 +344,31 @@ Instrukcje:
         }
 
         assistant_response = send_chat_data_to_gpt(chat_data)
-        print(f"Assistant Response:\n{assistant_response}")
+        if assistant_response:
+            logger.info(f"Assistant Response:\n{assistant_response}")
 
-        try:
-            description_parts = json.loads(assistant_response).get('description_parts', [])
-            if description_parts:
-                description_parts_to_insert(product_id, description_parts, images_with_descriptions)
-                update_ca_tresc(product_id)
-                print(f"Product ID {product_id} updated in the database.")
-            else:
-                print("No description parts found in the assistant response.")
-        except json.JSONDecodeError as e:
-            print(f"Error parsing assistant response: {e}")
+            try:
+                # Ensure the assistant's response is valid JSON
+                response_json = json.loads(assistant_response)
+                description_parts = response_json.get('description_parts', [])
 
+                if description_parts:
+                    description_parts_to_insert(product_id, description_parts, images_with_descriptions)
+                    update_ca_tresc(product_id)
+                    logger.info(f"Product ID {product_id} updated in the database.")
+                else:
+                    logger.warning("No description parts found in the assistant's response.")
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing assistant's response: {e}")
+        else:
+            logger.error("Assistant's response is empty or None.")
     else:
-        print(f"No product found for Product EAN: {product_ean}")
+        logger.warning(f"No product found for Product EAN: {product_ean}")
+
 
 # Main function to process and send one product to the GPT-4 API using EAN
 def main():
-    product_ean = '4211129133777'  # Example product EAN
+    product_ean = '8720573497923'  # Example product EAN
     display_fine_tune_input_for_single_product(product_ean)
 
 if __name__ == "__main__":
