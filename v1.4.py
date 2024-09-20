@@ -275,21 +275,23 @@ def update_ca_tresc(product_id):
                 else:
                     text2 = field_content
 
-        # Alternate the layout (chess order: text on the left, image on the right for odd orders, and vice versa for even orders)
-        if order % 2 == 1:  # Odd orders: text on the left, image on the right
-            section_html = f"""
-            <div class="ck-content wysiwyg-ck desc-row s-img-txt">
-                <div class="side">{text}</div>
-                <div class="side">{text2}</div>
-            </div>
-            """
-        else:  # Even orders: image on the left, text on the right
-            section_html = f"""
-            <div class="ck-content wysiwyg-ck desc-row s-txt-img">
-                <div class="side">{text2}</div>
-                <div class="side">{text}</div>
-            </div>
-            """
+        # Determine the class based on whether the fields contain an image
+        if '<img' in text and '<img' in text2:
+            layout_class = 's-img-img'
+        elif '<img' in text:
+            layout_class = 's-img-txt'
+        elif '<img' in text2:
+            layout_class = 's-txt-img'
+        else:
+            layout_class = 's-short'
+
+        # Create the HTML with dynamic class assignment
+        section_html = f"""
+        <div class="ck-content wysiwyg-ck desc-row {layout_class}">
+            <div class="side">{text}</div>
+            <div class="side">{text2}</div>
+        </div>
+        """
 
         # Append the generated HTML to CA_TRESC
         ca_tresc += section_html
@@ -307,6 +309,7 @@ def update_ca_tresc(product_id):
     logger.info(f"CA_TRESC field updated for product {product_id}")
     cursor.close()
     connection.close()
+
 
 
 def extract_image_sources(text):
@@ -349,7 +352,7 @@ Jesteś asystentem sklepu e-commerce. Twoim zadaniem jest tworzenie atrakcyjnych
 
 **Instrukcje:**
 
-1. Przemyśl najlepszy sposób krótkiego opisania produktu, uwzględniając podane informację. **Unikaj wymyślania niepewnych informacji. Nie pisz np rozmiary, jeżeli nie były podane**
+1. Przemyśl najlepszy sposób krótkiego opisania produktu, **uwzględniając podane informację**. **Unikaj wymyślania niepewnych informacji.**
 2. Zastanów się, które zdjęcia najlepiej pasują do poszczególnych fragmentów opisu i jak mogą wizualnie go wspierać.
 3. Zaplanuj rozmieszczenie zdjęć tak, aby harmonijnie współgrały z tekstem i dodawały kontekst wizualny. **Pamiętaj o maksymalnym rozmiarze 600x600 pikseli**.
 4. Dla każdej części opisu logicznie określ, gdzie(lewo lub prawo) powinno znaleźć się odpowiednie zdjęcie i dlaczego.
@@ -369,12 +372,13 @@ Jesteś asystentem sklepu e-commerce. Twoim zadaniem jest tworzenie atrakcyjnych
 
 **WAŻNE:**
 
+- **Pisz specyfikację wyłącznie jeżeli były podane!**
 - Używaj **wyłącznie** podanych identyfikatorów obrazów. **Nie dodawaj ani nie generuj nowych linków; wstawiaj tylko id zdjęcia w postaci ```img src=\"img_id:id\```, gdzie `id` to odpowiedni numer obrazu.**
-- Zachowaj odpowiednią strukturę HTML w polach `capd_desct_text` i `capd_desct_text2`. **Nie pozostawiaj pustych pól. Nie może być "capd_desc_text": "" lub "capd_desc_text2": ""**
+- Zachowaj odpowiednią strukturę HTML w polach `capd_desct_text` i `capd_desct_text2`. **Nie pozostawiaj pustych pól.**
 - Zadbaj o estetykę, spójność i czytelność tekstu. Upewnij się, że opis jest uporządkowany i przyjemny dla oka. Używaj symboli takich jak ✅ czy ⭐.
 - Staraj się nie robić za dużo tekstu ze względu na kosztowność. Pamiętaj o strukturze opisów: kolejność, lewo, prawo.
-- Jak jest tylko jedno zdjęcie, nie rób więcej niż 1 część opisów. Jak są kilka zdjęć nie generuj więcej niż 4 części opisu. 
-- Nigdy nie wstawiaj w opis tego samego zdjęcia kilka razy.
+- **Jak jest tylko jedno zdjęcie, nie rób więcej niż 1 część opisów. Nigdy nie generuj więcej niż 3(trzy) części opisu.**
+- **Nigdy nie wstawiaj w opis tego samego zdjęcia kilka razy.**
 
 """
 
@@ -431,7 +435,7 @@ Jesteś asystentem sklepu e-commerce. Twoim zadaniem jest tworzenie atrakcyjnych
 
 # Main function to process and send one product to the GPT-4 API using EAN
 def main():
-    product_ean = '5028420200621'  # Example product EAN
+    product_ean = '5901425521123'  # Example product EAN
     display_fine_tune_input_for_single_product(product_ean)
 
 if __name__ == "__main__":
