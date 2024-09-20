@@ -92,7 +92,7 @@ def get_product_images(product_id):
                     END
             ) AS rn
         FROM cms_zalaczniki
-        WHERE CZ_CW_ID = {product_id}
+        WHERE CZ_CW_ID = {product_id} AND CZ_CZS_ID = 0 OR CZ_CZS_ID IS NULL
     ) AS OrderedImages
     WHERE rn = 1
     ORDER BY CZ_KOLEJNOSC ASC
