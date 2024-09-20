@@ -91,7 +91,7 @@ def extract_image_sources(text):
 
 # Example usage
 def main():
-    product_id = 251304  # Example product ID
+    product_id = 160881  # Example product ID
 
     # Update CA_TRESC field with the combined HTML
     update_ca_tresc(product_id)

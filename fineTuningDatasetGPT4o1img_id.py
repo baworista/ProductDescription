@@ -144,7 +144,7 @@ def send_image_url_to_gpt_vision(image_url):
         "messages": [
             {
                 "role": "user",
-                "content": f"To jest zdjęcie produktu z internet-sklepu. Opisz to co jest na zdjęciu. Uważaj, bo masz 150 tokenów na odpowiedź.\nZdjęcie: {image_url}"
+                "content": f"To jest zdjęcie produktu z internet-sklepu. Krótko opisz to co jest na zdjęciu. Uważaj, bo masz 150 tokenów na odpowiedź.\nZdjęcie: {image_url}"
             }
         ],
         "max_tokens": 150

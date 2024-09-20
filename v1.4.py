@@ -20,21 +20,27 @@ DB_CONFIG = {
 }
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def log_sql(query, params=None):
+    if params:
+        logger.info(f"Executing SQL: {query} | Params: {params}")
+    else:
+        logger.info(f"Executing SQL: {query}")
+
 
 # Function to get product information, including materials
 def get_product_info_with_ean(product_ean):
     connection = mysql.connector.connect(**DB_CONFIG)
     cursor = connection.cursor()
 
-    # Query to fetch product information and materials
     query = f"""
     SELECT CA_CW_ID, CA_TYTUL, ca_filters_material1, ca_filters_material2, ca_filters_material3
     FROM cms_art_produkty
     WHERE CA_EAN = '{product_ean}'
     """
-
     cursor.execute(query)
     product = cursor.fetchone()
 
@@ -51,8 +57,10 @@ def get_product_info_with_ean(product_ean):
                 "material3": product[4] if product[4] else "brak informacji"
             }
         }
+        logger.info(f"Product Info: {product_info}")
         return product_info
     else:
+        logger.warning(f"No product found for EAN: {product_ean}")
         return None
 
 
@@ -62,50 +70,58 @@ def get_product_images(product_id):
     cursor = connection.cursor()
 
     query = f"""
-    SELECT CZ_SOURCE_SRC, CZ_KOLEJNOSC, CZ_TYP, CZ_CZS_ID
+    SELECT CZ_CZS_ID, CZ_SOURCE_SRC, CZ_KOLEJNOSC, CZ_TYP
     FROM (
         SELECT
+            CZ_CZS_ID,
             CASE 
                 WHEN CZ_SOURCE_SRC IS NOT NULL AND CZ_SOURCE_SRC != '' 
                 THEN CONCAT('https://www.superwnetrze.pl/i/cms/originals/', CZ_SOURCE_SRC) 
                 ELSE CZ_SRC 
             END AS CZ_SOURCE_SRC, 
             CZ_KOLEJNOSC, 
-            CZ_TYP, 
-            CZ_CZS_ID,
+            CZ_TYP,
             ROW_NUMBER() OVER (
                 PARTITION BY CZ_KOLEJNOSC
                 ORDER BY 
                     CASE 
-                        WHEN CZ_TYP = 'D' THEN 1  -- Prioritize large images first
-                        WHEN CZ_TYP = 'S' THEN 2  -- Then medium-sized images
-                        WHEN CZ_TYP = 'M' THEN 3  -- Small images come last
+                        WHEN CZ_TYP = 'D' THEN 1  
+                        WHEN CZ_TYP = 'S' THEN 2  
+                        WHEN CZ_TYP = 'M' THEN 3  
                         ELSE 4
                     END
             ) AS rn
         FROM cms_zalaczniki
         WHERE CZ_CW_ID = {product_id}
     ) AS OrderedImages
-    WHERE rn = 1  -- Only keep the first row (largest image) per CZ_KOLEJNOSC group
-    ORDER BY CZ_KOLEJNOSC ASC;
-    """
-
+    WHERE rn = 1
+    ORDER BY CZ_KOLEJNOSC ASC
+    LIMIT 3
+    """ 
     cursor.execute(query)
-    images = [{"img_id": idx + 1, "url": row[0]} for idx, row in enumerate(cursor.fetchall())]
 
+    images = []
+    for idx, row in enumerate(cursor.fetchall()):
+        url = row[1] if row[1] != 0 else None  # Handle 0 as None or invalid URL
+        images.append({"img_id": idx + 1, "url": url})
+
+    logger.info(f"Fetched images: {images}")
     cursor.close()
     connection.close()
 
     return images
 
+
+
 # Function to send an image URL to GPT-4 API and get a description
 def send_image_url_to_gpt(image_url):
+    # return("Error: no description")
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
 
-    prompt = f"Opis zdjęcia produktu dla sklepu internetowego. Opisz to co jest na zdjęciu.\nZdjęcie: {image_url}"
+    prompt = f"Opis zdjęcia produktu dla sklepu internetowego. Krótko opisz to co jest na zdjęciu.\nZdjęcie: {image_url}"
 
     payload = {
         "model": "gpt-4o-2024-08-06",  # Use GPT-4 or your fine-tuned model
@@ -126,6 +142,7 @@ def send_image_url_to_gpt(image_url):
     else:
         print(f"Error in API call: {response_json}")
         return "Description not available"
+
 
 # Function to process images and add their descriptions
 def process_images_with_descriptions(image_urls):
@@ -162,13 +179,20 @@ def send_chat_data_to_gpt(chat_data):
         print(f"Error in API call: {response_json}")
         return "Error in API call"
 
+
 # Function to replace img_id with URLs in the assistant's output
 def replace_img_id_with_urls(text, image_id_to_url):
     for image in image_id_to_url:
         img_id = f"img_id:{image['img_id']}"
-        url = image['url']
+        if image['url']:
+            url = str(image['url'])
+        else:
+            url = "Invalid URL"
+            logger.warning(f"Invalid URL for img_id: {image['img_id']}")
         text = text.replace(img_id, url)
     return text
+
+
 
 # Function to insert description parts into the database
 def description_parts_to_insert(product_id, description_parts, image_id_to_url):
@@ -177,6 +201,7 @@ def description_parts_to_insert(product_id, description_parts, image_id_to_url):
 
     # Delete existing descriptions for the product
     delete_query = "DELETE FROM cms_art_produkty_desc WHERE capd_cw_id = %s"
+    log_sql(delete_query, product_id)
     cursor.execute(delete_query, (product_id,))
     connection.commit()
 
@@ -192,45 +217,79 @@ def description_parts_to_insert(product_id, description_parts, image_id_to_url):
         """
         values = (product_id, order, left, right)
 
-        # Execute each insert query
+        log_sql(query, values)
         cursor.execute(query, values)
 
     # Commit the changes to the database
     connection.commit()
 
-    # Close the cursor and connection
+    logger.info(f"Inserted description parts for product {product_id}")
     cursor.close()
     connection.close()
+    
 
-# Function to build CA_TRESC field and update it in cms_art_produkty
 def update_ca_tresc(product_id):
     connection = mysql.connector.connect(**DB_CONFIG)
     cursor = connection.cursor()
 
     # Fetch all description parts for the product
     query = """
-    SELECT capd_desc_order, capd_desc_text, capd_desc_text2
+    SELECT capd_desc_order, capd_desc_text, capd_desc_text2, capd_kind
     FROM cms_art_produkty_desc
     WHERE capd_cw_id = %s
     ORDER BY capd_desc_order ASC
     """
+    log_sql(query, product_id)
     cursor.execute(query, (product_id,))
     description_parts = cursor.fetchall()
 
     # Initialize CA_TRESC as an empty string
     ca_tresc = ""
 
-    # Loop over each description part and generate HTML
+    # Iterate over each description part
     for part in description_parts:
-        order, text, text2 = part
+        order, text, text2, kind = part
 
-        # Generate HTML based on the content
-        section_html = f"""
-        <div class="ck-content wysiwyg-ck">
-            {text}
-            {text2}
-        </div>
-        """
+        # Skip invalid or empty sections
+        if order == -1:
+            continue
+
+        # Process images and inject width and height attributes
+        for field in ['text', 'text2']:
+            field_content = text if field == 'text' else text2
+            if '<img' in field_content:
+                img_srcs = extract_image_sources(field_content)
+                for img_src in img_srcs:
+                    image_query = f"SELECT CZ_WIDTH, CZ_HEIGHT FROM cms_zalaczniki WHERE CZ_SRC = %s"
+                    cursor.execute(image_query, (img_src,))
+                    img = cursor.fetchone()
+                    if img and img[0] > 0:
+                        width, height = img
+                        field_content = field_content.replace(
+                            f'<img src="{img_src}"',
+                            f'<img src="{img_src}" width="{width}" height="{height}"'
+                        )
+                
+                if field == 'text':
+                    text = field_content
+                else:
+                    text2 = field_content
+
+        # Alternate the layout (chess order: text on the left, image on the right for odd orders, and vice versa for even orders)
+        if order % 2 == 1:  # Odd orders: text on the left, image on the right
+            section_html = f"""
+            <div class="ck-content wysiwyg-ck desc-row s-img-txt">
+                <div class="side">{text}</div>
+                <div class="side">{text2}</div>
+            </div>
+            """
+        else:  # Even orders: image on the left, text on the right
+            section_html = f"""
+            <div class="ck-content wysiwyg-ck desc-row s-txt-img">
+                <div class="side">{text2}</div>
+                <div class="side">{text}</div>
+            </div>
+            """
 
         # Append the generated HTML to CA_TRESC
         ca_tresc += section_html
@@ -241,11 +300,21 @@ def update_ca_tresc(product_id):
     SET CA_TRESC = %s
     WHERE CA_CW_ID = %s
     """
+    log_sql(update_query, (ca_tresc, product_id))
     cursor.execute(update_query, (ca_tresc, product_id))
     connection.commit()
 
+    logger.info(f"CA_TRESC field updated for product {product_id}")
     cursor.close()
     connection.close()
+
+
+def extract_image_sources(text):
+    import re
+    # Regular expression to find all <img src="...">
+    return re.findall(r'<img\s+src="([^"]+)"', text)
+
+
 
 # Function to create and send system message and user input for a specific product
 def display_fine_tune_input_for_single_product(product_ean):
@@ -266,6 +335,9 @@ def display_fine_tune_input_for_single_product(product_ean):
         # Process images and add descriptions
         images_with_descriptions = process_images_with_descriptions(images)
 
+        # Log the images with descriptions
+        logger.info(f"Images with descriptions: {images_with_descriptions}")
+
         # Create the system prompt
         system_prompt = """
 Jesteś asystentem sklepu e-commerce. Twoim zadaniem jest tworzenie atrakcyjnych opisów produktów, które zostaną zapisane w bazie danych w następującej strukturze:
@@ -275,32 +347,14 @@ Jesteś asystentem sklepu e-commerce. Twoim zadaniem jest tworzenie atrakcyjnych
 - **capd_desct_text**: lewa strona opisu (z odpowiednimi tagami HTML)
 - **capd_desct_text2**: prawa strona opisu (z odpowiednimi tagami HTML)
 
-***
-
 **Instrukcje:**
 
-1. Przemyśl najlepszy sposób opisania produktu, uwzględniając kluczowe cechy interesujące klientów: funkcjonalność, jakość, estetykę. Zwróć uwagę na materiał, jeśli jest podany, i unikaj wymyślania niepewnych informacji.
+1. Przemyśl najlepszy sposób krótkiego opisania produktu, uwzględniając podane informację. **Unikaj wymyślania niepewnych informacji. Nie pisz np rozmiary, jeżeli nie były podane**
 2. Zastanów się, które zdjęcia najlepiej pasują do poszczególnych fragmentów opisu i jak mogą wizualnie go wspierać.
-3. Zaplanuj rozmieszczenie zdjęć tak, aby harmonijnie współgrały z tekstem i dodawały kontekst wizualny, **pamiętając o maksymalnym rozmiarze 600x600 pikseli**.
-4. Dla każdej części opisu logicznie określ, gdzie powinno znaleźć się odpowiednie zdjęcie i dlaczego.
-5. Sformułuj ostateczny tekst opisu i umieść zdjęcia w odpowiednich miejscach.
-
-***
-
-- Używaj **wyłącznie** podanych identyfikatorów obrazów. **Nie dodawaj ani nie generuj nowych linków; wstawiaj tylko id zdjęcia.**
-- Zachowaj odpowiednią strukturę HTML w polach `capd_desct_text` i `capd_desct_text2`. **Nie pozostawiaj pustych pól. Nie może być "capd_desc_text": "" lub "capd_desc_text2": ""**
-- Zadbaj o estetykę, spójność i czytelność tekstu. Upewnij się, że opis jest uporządkowany i przyjemny dla oka. Możesz używać symboli takich jak ✅ czy ⭐.
-- Staraj się nie robić za dużo tekstu ze względu na kosztowność. Pamiętaj o strukturze opisów: kolejność, lewo, prawo.
-
-***
-
-**WAŻNE:** Używaj **tylko** podanych identyfikatorów obrazów. **Nie dodawaj ani nie twórz nowych identyfikatorów. Zastępuj linki zdjęć identyfikatorem `img_id:id`, gdzie `id` to odpowiedni numer obrazu.**
-**WAŻNE:** Jak jest tylko jedno zdjęcie, nie rób więcej niż 1 część opisów. jak są kilka zdjęć nie generuj więcej niż 5 części opisu. 
-**WAŻNE:** **Nie powtarzaj tego samego zdjęcia kilka razy**
-
-***
-
-The output must be strictly:
+3. Zaplanuj rozmieszczenie zdjęć tak, aby harmonijnie współgrały z tekstem i dodawały kontekst wizualny. **Pamiętaj o maksymalnym rozmiarze 600x600 pikseli**.
+4. Dla każdej części opisu logicznie określ, gdzie(lewo lub prawo) powinno znaleźć się odpowiednie zdjęcie i dlaczego.
+5. Sformułuj ostateczny tekst opisu z tegami html.
+6. **Uwzględnij strukturę w której musi być podana odpowiedź:**
 
 {
   "description_parts": [
@@ -312,6 +366,15 @@ The output must be strictly:
     // Możesz dodać więcej części opisu według potrzeb
   ]
 }
+
+**WAŻNE:**
+
+- Używaj **wyłącznie** podanych identyfikatorów obrazów. **Nie dodawaj ani nie generuj nowych linków; wstawiaj tylko id zdjęcia w postaci ```img src=\"img_id:id\```, gdzie `id` to odpowiedni numer obrazu.**
+- Zachowaj odpowiednią strukturę HTML w polach `capd_desct_text` i `capd_desct_text2`. **Nie pozostawiaj pustych pól. Nie może być "capd_desc_text": "" lub "capd_desc_text2": ""**
+- Zadbaj o estetykę, spójność i czytelność tekstu. Upewnij się, że opis jest uporządkowany i przyjemny dla oka. Używaj symboli takich jak ✅ czy ⭐.
+- Staraj się nie robić za dużo tekstu ze względu na kosztowność. Pamiętaj o strukturze opisów: kolejność, lewo, prawo.
+- Jak jest tylko jedno zdjęcie, nie rób więcej niż 1 część opisów. Jak są kilka zdjęć nie generuj więcej niż 4 części opisu. 
+- Nigdy nie wstawiaj w opis tego samego zdjęcia kilka razy.
 
 """
 
@@ -368,7 +431,7 @@ The output must be strictly:
 
 # Main function to process and send one product to the GPT-4 API using EAN
 def main():
-    product_ean = '8720573497923'  # Example product EAN
+    product_ean = '5028420200621'  # Example product EAN
     display_fine_tune_input_for_single_product(product_ean)
 
 if __name__ == "__main__":
