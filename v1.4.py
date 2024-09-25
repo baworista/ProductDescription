@@ -37,12 +37,20 @@ def get_product_info_with_ean(product_ean):
     cursor = connection.cursor()
 
     query = f"""
-    SELECT CA_CW_ID, CA_TYTUL, ca_filters_material1, ca_filters_material2, ca_filters_material3
+    SELECT CA_CW_ID, CA_TYTUL, ca_filters_material1, ca_filters_material2, ca_filters_material3, ca_filters_wysokosc, ca_filters_dlugosc, ca_filters_szerokosc, ca_filters_glebokosc, ca_filters_srednica, ca_filters_pojemnosc, CA_PRODUCENT_ID
     FROM cms_art_produkty
     WHERE CA_EAN = '{product_ean}'
     """
     cursor.execute(query)
     product = cursor.fetchone()
+
+    query = f"""
+    SELECT CP_NAZWA
+    FROM cms_producenci
+    WHERE CP_ID = '{product[11]}'
+    """
+    cursor.execute(query)
+    producent = cursor.fetchone()
 
     cursor.close()
     connection.close()
@@ -55,7 +63,16 @@ def get_product_info_with_ean(product_ean):
                 "material1": product[2] if product[2] else "brak informacji",
                 "material2": product[3] if product[3] else "brak informacji",
                 "material3": product[4] if product[4] else "brak informacji"
-            }
+            },
+            "sizes": {
+                "wysokość": product[5] if product[5] else "brak informacji",
+                "długość": product[6] if product[6] else "brak informacji",
+                "szerokość": product[7] if product[7] else "brak informacji",
+                "głębokość": product[8] if product[8] else "brak informacji",
+                "średnica": product[9] if product[9] else "brak informacji",
+                "pojemność": product[10] if product[10] else "brak informacji",
+            },
+            "producent": producent[0]
         }
         logger.info(f"Product Info: {product_info}")
         return product_info
@@ -115,7 +132,7 @@ def get_product_images(product_id):
 
 # Function to send an image URL to GPT-4 API and get a description
 def send_image_url_to_gpt(image_url):
-    # return("Error: no description")
+    //return "Here is description"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
@@ -325,8 +342,10 @@ def display_fine_tune_input_for_single_product(product_ean):
 
     if product_info:
         product_id = product_info["product_id"]
+        producent = product_info["producent"]
         product_name = product_info["product_name"]
         materials = product_info["materials"]
+        sizes = product_info["sizes"]
 
         # Get product images
         images = get_product_images(product_id)
@@ -343,51 +362,51 @@ def display_fine_tune_input_for_single_product(product_ean):
 
         # Create the system prompt
         system_prompt = """
-Jesteś asystentem sklepu e-commerce. Twoim zadaniem jest tworzenie atrakcyjnych opisów produktów, które zostaną zapisane w bazie danych w następującej strukturze:
+Jesteś asystentem sklepu e-commerce. Twoim zadaniem jest tworzenie atrakcyjnych opisów produktów w strukturze:
 
 - **capd_cw_id**: ID produktu
 - **capd_desc_order**: kolejność części opisu
-- **capd_desct_text**: lewa strona opisu (z odpowiednimi tagami HTML)
-- **capd_desct_text2**: prawa strona opisu (z odpowiednimi tagami HTML)
+- **capd_desct_text**: lewa strona opisu (z HTML)
+- **capd_desct_text2**: prawa strona opisu (z HTML)
 
 **Instrukcje:**
 
-1. Przemyśl najlepszy sposób krótkiego opisania produktu, **uwzględniając podane informację**. **Unikaj wymyślania niepewnych informacji.**
-2. Zastanów się, które zdjęcia najlepiej pasują do poszczególnych fragmentów opisu i jak mogą wizualnie go wspierać.
-3. Zaplanuj rozmieszczenie zdjęć tak, aby harmonijnie współgrały z tekstem i dodawały kontekst wizualny. **Pamiętaj o maksymalnym rozmiarze 600x600 pikseli**.
-4. Dla każdej części opisu logicznie określ, gdzie(lewo lub prawo) powinno znaleźć się odpowiednie zdjęcie i dlaczego.
-5. Sformułuj ostateczny tekst opisu z tegami html.
-6. **Uwzględnij strukturę w której musi być podana odpowiedź:**
+1. Opracuj krótki opis produktu na podstawie podanych informacji. **Nie dodawaj niepewnych danych.**
+2. Wybierz najlepsze zdjęcia dla fragmentów opisu, aby wspierały tekst. **Rozmiar max: 600x600.**
+3. Zaplanuj, gdzie umieścić zdjęcia (lewo/prawo) dla najlepszej prezentacji.
+4. Stwórz opis używając struktury:
 
 {
   "description_parts": [
     {
       "capd_desc_order": 1,
-      "capd_desc_text": "Treść dla lewej strony z odpowiednimi tagami HTML",
-      "capd_desc_text2": "Treść dla prawej strony z odpowiednimi tagami HTML"
-    },
-    // Możesz dodać więcej części opisu według potrzeb
+      "capd_desc_text": "Treść dla lewej strony z HTML",
+      "capd_desc_text2": "Treść dla prawej strony z HTML"
+    }
+    // Dodatkowe części według potrzeb
   ]
 }
 
 **WAŻNE:**
 
-- **Pisz specyfikację wyłącznie jeżeli były podane!**
-- Używaj **wyłącznie** podanych identyfikatorów obrazów. **Nie dodawaj ani nie generuj nowych linków; wstawiaj tylko id zdjęcia w postaci ```img src=\"img_id:id\```, gdzie `id` to odpowiedni numer obrazu.**
-- Zachowaj odpowiednią strukturę HTML w polach `capd_desct_text` i `capd_desct_text2`. **Nie pozostawiaj pustych pól.**
-- Zadbaj o estetykę, spójność i czytelność tekstu. Upewnij się, że opis jest uporządkowany i przyjemny dla oka. Używaj symboli takich jak ✅ czy ⭐.
-- Staraj się nie robić za dużo tekstu ze względu na kosztowność. Pamiętaj o strukturze opisów: kolejność, lewo, prawo.
-- **Jak jest tylko jedno zdjęcie, nie rób więcej niż 1 część opisów. Nigdy nie generuj więcej niż 3(trzy) części opisu.**
-- **Nigdy nie wstawiaj w opis tego samego zdjęcia kilka razy.**
-
+- **Pisz specyfikację tylko z dostępnych danych.**
+- Używaj **wyłącznie** podanych identyfikatorów obrazów. **Nie dodawaj ani nie generuj nowych linków; wstawiaj tylko id zdjęcia w postaci img src=\"img_id:id\
+, gdzie id to odpowiedni numer obrazu.**
+- Zachowaj odpowiednią strukturę HTML. **Nie pozostawiaj pustych pól.**
+- Zadbaj o estetykę, spójność i czytelność. Używaj symboli ✅, ⭐.
+- Jeśli jest jedno zdjęcie, utwórz **maksymalnie 1 sekcję**. Przy więcej niż 1 zdjęciu - **maksymalnie 3 sekcje.**
+- **Nie używaj tego samego zdjęcia więcej niż raz.**
 """
+
 
 
         # Prepare the user message with product information, materials, and images
         user_message = {
             "product_id": product_id,
             "product_name": product_name,
+            "producent_name": producent,
             "materials": materials,
+            "sizes": sizes,
             "images": [
                 {
                     "img_id": image["img_id"],
@@ -435,7 +454,7 @@ Jesteś asystentem sklepu e-commerce. Twoim zadaniem jest tworzenie atrakcyjnych
 
 # Main function to process and send one product to the GPT-4 API using EAN
 def main():
-    product_ean = '5901425521123'  # Example product EAN
+    product_ean = '5903351255462'  # Example product EAN
     display_fine_tune_input_for_single_product(product_ean)
 
 if __name__ == "__main__":
