@@ -132,7 +132,7 @@ def get_product_images(product_id):
 
 # Function to send an image URL to GPT-4 API and get a description
 def send_image_url_to_gpt(image_url):
-    //return "Here is description"
+    #return "Here is description"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
@@ -393,7 +393,7 @@ Jesteś asystentem sklepu e-commerce. Twoim zadaniem jest tworzenie atrakcyjnych
 - Używaj **wyłącznie** podanych identyfikatorów obrazów. **Nie dodawaj ani nie generuj nowych linków; wstawiaj tylko id zdjęcia w postaci img src=\"img_id:id\
 , gdzie id to odpowiedni numer obrazu.**
 - Zachowaj odpowiednią strukturę HTML. **Nie pozostawiaj pustych pól.**
-- Zadbaj o estetykę, spójność i czytelność. Używaj symboli ✅, ⭐.
+- Zadbaj o estetykę, spójność i czytelność. Używaj symboli ✅, ⭐, ale bez przesady.
 - Jeśli jest jedno zdjęcie, utwórz **maksymalnie 1 sekcję**. Przy więcej niż 1 zdjęciu - **maksymalnie 3 sekcje.**
 - **Nie używaj tego samego zdjęcia więcej niż raz.**
 """
