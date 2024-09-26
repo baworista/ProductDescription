@@ -148,7 +148,7 @@ def send_image_url_to_gpt(image_url):
                 "content": prompt
             }
         ],
-        "max_tokens": 150  # Limit to 130 tokens for the description
+        "max_tokens": 150  # Limit to 150 tokens for the description
     }
 
     response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)

@@ -41,46 +41,68 @@ def extract_product_ids_from_file(file_path):
     return existing_product_ids
 
 
-# Function to get product information, including materials
-def get_product_info_with_materials():
+# Function to get product information, including materials and additional info
+def get_product_info_with_materials_and_producer(limit=1):
     connection = mysql.connector.connect(**DB_CONFIG)
     cursor = connection.cursor()
 
-    # Query to fetch product information and materials
+    # Query to fetch product information, materials, sizes, and producer
     query = """
-    SELECT CA_CW_ID, CA_TYTUL, ca_filters_material1, ca_filters_material2, ca_filters_material3
+    SELECT CA_CW_ID, CA_TYTUL, ca_filters_material1, ca_filters_material2, ca_filters_material3,
+           ca_filters_wysokosc, ca_filters_dlugosc, ca_filters_szerokosc, ca_filters_glebokosc,
+           ca_filters_srednica, ca_filters_pojemnosc, CA_PRODUCENT_ID
     FROM cms_art_produkty
     WHERE ca_is_multitext = 1 AND CA_AKTYWNY = 'T'
     """
-
     cursor.execute(query)
     products = cursor.fetchall()
 
-    cursor.close()
-    connection.close()
-
-    # Shuffle the products
+    # Shuffle the products to introduce randomness
     random.shuffle(products)
 
     # Extract existing product IDs from the fine-tuning file
     existing_product_ids = extract_product_ids_from_file("fine_tune_chat_dataset.jsonl")
 
-    # Filter out products that are already in the fine-tuning dataset
-    new_products = [
-        {
+    product_info_list = []
+    for product in products:
+        # Skip the product if it's already in the fine-tuning dataset
+        if product[0] in existing_product_ids:
+            continue
+
+        # Query to fetch the producer name based on CA_PRODUCENT_ID
+        cursor.execute(f"SELECT CP_NAZWA FROM cms_producenci WHERE CP_ID = '{product[11]}'")
+        producer = cursor.fetchone()
+        
+        product_info = {
             "product_id": product[0],
             "product_name": product[1],
             "materials": {
                 "material1": product[2] if product[2] else "brak informacji",
                 "material2": product[3] if product[3] else "brak informacji",
                 "material3": product[4] if product[4] else "brak informacji"
-            }
+            },
+            "sizes": {
+                "wysokość": product[5] if product[5] else "brak informacji",
+                "długość": product[6] if product[6] else "brak informacji",
+                "szerokość": product[7] if product[7] else "brak informacji",
+                "głębokość": product[8] if product[8] else "brak informacji",
+                "średnica": product[9] if product[9] else "brak informacji",
+                "pojemność": product[10] if product[10] else "brak informacji",
+            },
+            "producent": producer[0] if producer else "brak informacji"
         }
-        for product in products if product[0] not in existing_product_ids
-    ]
+        
+        product_info_list.append(product_info)
 
-    # Return only the first product
-    return new_products[:1]
+        # Stop adding products once we've reached the specified limit
+        if len(product_info_list) >= limit:
+            break
+
+    cursor.close()
+    connection.close()
+
+    return product_info_list
+
 
 
 # Function to get all image URLs and generate unique img_id for each
@@ -111,19 +133,19 @@ def get_product_images(product_id):
                     END
             ) AS rn
         FROM cms_zalaczniki
-        WHERE CZ_CW_ID = {product_id}
+        WHERE CZ_CW_ID = {product_id} AND CZ_CZS_ID = 0 OR CZ_CZS_ID IS NULL
     ) AS OrderedImages
     WHERE rn = 1
     ORDER BY CZ_KOLEJNOSC ASC
-    LIMIT 
+    LIMIT 3
     """ 
 
     cursor.execute(query)
+
     images = []
     for idx, row in enumerate(cursor.fetchall()):
-        img_id = idx + 1
-        url = row[1]
-        images.append({"img_id": img_id, "url": url})
+        url = row[1] if row[1] != 0 else None  # Handle 0 as None or invalid URL
+        images.append({"img_id": idx + 1, "url": url})
 
     cursor.close()
     connection.close()
@@ -133,21 +155,23 @@ def get_product_images(product_id):
 
 # Function to send an image URL to GPT-4 Vision API and get a description
 def send_image_url_to_gpt_vision(image_url):
-    # return "Generated_description"
+    return "Generated_description"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
 
+    prompt = f"Opis zdjęcia produktu dla sklepu internetowego. Krótko opisz to co jest na zdjęciu.\nZdjęcie: {image_url}"
+
     payload = {
-        "model": "gpt-4o-2024-08-06",
+        "model": "gpt-4o-2024-08-06",  # Use GPT-4 or your fine-tuned model
         "messages": [
             {
                 "role": "user",
-                "content": f"To jest zdjęcie produktu z internet-sklepu. Krótko opisz to co jest na zdjęciu. Uważaj, bo masz 150 tokenów na odpowiedź.\nZdjęcie: {image_url}"
+                "content": prompt
             }
         ],
-        "max_tokens": 150
+        "max_tokens": 150  # Limit to 150 tokens for the description
     }
 
     response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
@@ -201,8 +225,6 @@ def get_product_descriptions(product_id):
     connection.close()
 
     return description_parts
-
-import random
 
 
 # Function to replace all URLs in description parts with their corresponding img_id or a random img_id
@@ -275,15 +297,17 @@ def replace_urls_with_img_ids(descriptions, image_descriptions):
     return descriptions
 
 
-# Function to create the JSONL dataset with materials information
+# Function to create the JSONL dataset with materials and producer information
 def create_fine_tune_dataset(output_file="fine_tune_chat_dataset.jsonl"):
-    products = get_product_info_with_materials()
+    products = get_product_info_with_materials_and_producer()
 
     with open(output_file, "a", encoding="utf-8") as file:
         for product in products:
             product_id = product["product_id"]
             product_name = product["product_name"]
             materials = product["materials"]
+            sizes = product["sizes"]
+            producer = product["producent"]
 
             # Get product images (with URLs)
             images = get_product_images(product_id)
@@ -291,60 +315,71 @@ def create_fine_tune_dataset(output_file="fine_tune_chat_dataset.jsonl"):
             # Process images and add descriptions directly to the images dictionary
             images_with_descriptions = process_images_with_descriptions(images)
 
-            # Get product descriptions (left and right sides)
+            # Get product descriptions (left and right sides) from the database
             descriptions = get_product_descriptions(product_id)
+
+            # Check if there are description parts, if not, skip this product
+            if not descriptions:
+                print(f"No descriptions found for product ID {product_id}")
+                continue
 
             # Replace URLs with img_id in description parts
             descriptions_with_img_ids = replace_urls_with_img_ids(descriptions, images_with_descriptions)
 
             # Create the system prompt with the updated structure
             system_prompt = """
-Jesteś asystentem sklepu e-commerce. Twoim zadaniem jest wygenerowanie atrakcyjnych opisów produktów, które zostaną zapisane w bazie danych w następującej strukturze:
+Jesteś asystentem sklepu e-commerce. Twoim zadaniem jest tworzenie atrakcyjnych opisów produktów w strukturze:
 
-- capd_cw_id: ID produktu
-- capd_desc_order: kolejność części opisu
-- capd_desct_text: lewa strona opisu (z odpowiednimi tagami HTML)
-- capd_desct_text2: prawa strona opisu (z odpowiednimi tagami HTML)
+- **capd_cw_id**: ID produktu
+- **capd_desc_order**: kolejność części opisu
+- **capd_desct_text**: lewa strona opisu (z HTML)
+- **capd_desct_text2**: prawa strona opisu (z HTML)
 
-***
+**Instrukcje:**
 
-Instrukcje:
-- Masz podane id produktu, nazwę produktu, material(jeżeli jest informacja) oraz id zdjęć z ich opisami. Na podstawie nazwy produktu oraz opisów zdjęć, wygeneruj opis produktu krok po kroku:
-  
-  1. ***Najpierw*** pomyśl nad najlepszym sposobem opisania produktu. Rozważ kluczowe cechy, które mogą zainteresować klientów, np. funkcjonalność, jakość, estetyka.
-  2. ***Zastanów się***, jakie zdjęcia najlepiej pasują do opisu każdego fragmentu tekstu i jak mogą wizualnie wspierać opis. Wybierz odpowiednie id zdjęć na podstawie ich opisu i funkcji.
-  3. ***Zaplanuj***, gdzie umieścić zdjęcia, aby harmonijnie wspierały tekst i wprowadzały wizualny kontekst.
-  4. ***Dla każdej części opisu***, zapisz swoje myśli i logiczny ciąg myślenia, gdzie dane zdjęcie powinno się znaleźć i dlaczego.
-  5. Dopiero po tym przemyśleniu, przystąp do ostatecznego sformułowania treści i umiejscowienia zdjęć w odpowiednich miejscach.
+1. Opracuj krótki opis produktu na podstawie podanych informacji. **Nie dodawaj niepewnych danych.**
+2. Wybierz najlepsze zdjęcia dla fragmentów opisu, aby wspierały tekst. **Rozmiar max: 600x600.**
+3. Zaplanuj, gdzie umieścić zdjęcia (lewo/prawo) dla najlepszej prezentacji.
+4. Stwórz opis używając struktury:
 
-***
+{
+  "description_parts": [
+    {
+      "capd_desc_order": 1,
+      "capd_desc_text": "Treść dla lewej strony z HTML",
+      "capd_desc_text2": "Treść dla prawej strony z HTML"
+    }
+    // Dodatkowe części według potrzeb
+  ]
+}
 
-- Używaj id zdjęć w miejscach, gdzie musi być wstawione odpowiednie zdjęcie. ***Nie modyfikuj ani nie twórz nowych linków, tylko wstawiaj id zdjęcia.***
-- Zachowaj odpowiednią strukturę HTML w polach `capd_desct_text` i `capd_desct_text2`. ***Nie zostawiaj pustych pól.***
-- Unikaj umieszczania pierwszego zdjęcia z id 1 tam, gdzie capd_desc_order to 1. Na inne zdjęcia nie ma ograniczeń.
-- Opis nie musi być dłuższy niż 5 części i, w przypadku więcej niż jednego zdjęcia, nie mniej niż 2 części.
-- Pamiętaj o estetyce, logicznym ciągu opisu i czytelności tekstu. Zapewnij, że opis jest uporządkowany i przyjemny dla oka.
-- Upewnij się, że zdjęcia są umieszczone w odpowiednich miejscach, w sposób przemyślany i z sensem.
+**WAŻNE:**
 
-***
-
-WAŻNE: Używaj ***tylko*** podanych identyfikatorów obrazów. ***Nie dodawaj oraz nie generuj nowych identyfikatorów. Zastępuj linki zdjęć identyfikatorem img_id:id, gdzie id to odpowiedni identyfikator obrazu.***
-
+- **Pisz specyfikację tylko z dostępnych danych.**
+- Używaj **wyłącznie** podanych identyfikatorów obrazów. **Nie dodawaj ani nie generuj nowych linków; wstawiaj tylko id zdjęcia w postaci img src=\"img_id:id\
+, gdzie id to odpowiedni numer obrazu.**
+- Zachowaj odpowiednią strukturę HTML. **Nie pozostawiaj pustych pól.**
+- Zadbaj o estetykę, spójność i czytelność. Używaj symboli ✅, ⭐, ale bez przesady.
+- Jeśli jest jedno zdjęcie, utwórz **maksymalnie 1 sekcję**. Przy więcej niż 1 zdjęciu - **maksymalnie 3 sekcje.**
+- **Nie używaj tego samego zdjęcia więcej niż raz.**
 """
 
-            # Prepare the user message with img_id, descriptions, and materials
+            # Prepare the user message with product information
             user_message = {
                 "product_id": product_id,
                 "product_name": product_name,
+                "producent_name": producer,
                 "materials": materials,
+                "sizes": sizes,
                 "images": [
                     {
                         "img_id": image["img_id"],
                         "description": image["description"]
-                    } for image in images_with_descriptions  # Keep only img_id and description fields
+                    } for image in images_with_descriptions
                 ]
             }
 
+            # Construct the chat data including the system prompt, user input, and assistant response
             chat_data = {
                 "messages": [
                     {
@@ -363,6 +398,7 @@ WAŻNE: Używaj ***tylko*** podanych identyfikatorów obrazów. ***Nie dodawaj o
             }
 
             file.write(json.dumps(chat_data, ensure_ascii=False) + "\n")
+
 
 
 # Main function to process all products and create the dataset
