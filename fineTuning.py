@@ -8,6 +8,7 @@ load_dotenv()
 # Initialize OpenAI client (it will default to picking the API key from env)
 client = OpenAI()
 
+# ============================================1==============================================
 # # Upload the fine-tuning dataset, opening the file in binary mode ('rb')
 # with open("fine_tune_chat_dataset.jsonl", "rb") as f:
 #     response = client.files.create(
@@ -19,6 +20,7 @@ client = OpenAI()
 # print(response.id)
 
 
+# ============================================2==============================================
 # # CREATE FINE-TUNING JOB
 # response = client.fine_tuning.jobs.create(
 #   training_file="file-xpwFa5rPgofDhRJjTSJGW96f",
@@ -29,6 +31,7 @@ client = OpenAI()
 # print(response)
 
 
+# ============================================3==============================================
 # MONITOR FINE-TUNING JOB
 # ftjob-k6gOW9YbNsAigLvZZAXY9bbD - v1.2(test fine-tuning)
 # ftjob-R21W8ii0zLej2vLNaBATsRkF - v1.3(id, name and img urls)
@@ -39,6 +42,7 @@ response = client.fine_tuning.jobs.retrieve("ftjob-dzMBKxXWVjcUdZSSAI6tQsdW")
 print(response)
 
 
+# ============================================4==============================================
 # TEST USAGE
 # completion = client.chat.completions.create(
 #   model="ft:gpt-4o-2024-08-06:my-org:custom_suffix:ftjob-pHyvfekGVLqpFu5HQsCrVW6E",
@@ -51,7 +55,7 @@ print(response)
 
 
 
-
+# ==========================================================================================
 # List 10 fine-tuning jobs
 #client.fine_tuning.jobs.list()
 

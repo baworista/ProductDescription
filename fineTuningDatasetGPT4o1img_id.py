@@ -115,7 +115,7 @@ def get_product_images(product_id):
     ) AS OrderedImages
     WHERE rn = 1
     ORDER BY CZ_KOLEJNOSC ASC
-    LIMIT 6
+    LIMIT 
     """ 
 
     cursor.execute(query)
