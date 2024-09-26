@@ -35,3 +35,12 @@ Main things are wrote in prompt itself, but there are several things to mention:
 
  5. Programs **descriptionGet.py**, **phpLogic.py**, **gptAPI.py**, **gptVision.py** are programs
     to check different parts of needed program separately. And were used at the beginning of the project.
+
+TO DO:
+Some of products have descriptions from producent which are not good structured, but could containd important information about product, there are 2 ways to  deal with it:
+ - Use gpt to collect data, insert it into product specification and then use default prompt
+ - Make second prompt for the case if we have description from producent to use it as a base for new one
+
+Generate new dataset and make new fine-tuned model(better to make it after all changes to avoid redundant money loss)
+
+Additionaly could be added capd_kind column in database instead of finding it in update_ca_tresc function 

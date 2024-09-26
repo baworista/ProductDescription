@@ -314,9 +314,12 @@ def update_ca_tresc(product_id):
         ca_tresc += section_html
 
     # Update the CA_TRESC field in cms_art_produkty
+    # !!!
+    # If doing a test REMOVE ca_is_multitext = 1 to not fill database with not trusted description
+    # !!!
     update_query = """
     UPDATE cms_art_produkty
-    SET CA_TRESC = %s
+    SET CA_TRESC = %s, ca_is_multitext = 1
     WHERE CA_CW_ID = %s
     """
     log_sql(update_query, (ca_tresc, product_id))
